@@ -2,7 +2,7 @@
 
 Small script to display a clock / date / weather dashboard on your RPi 2in13bc ePaper screen.
 
-![How it looks like](./Example.jpg?raw=true)
+![How it looks like](./Example.png?raw=true)
 
 ## Dependencies:
 * pipenv
