@@ -37,6 +37,7 @@ FONT = os.path.join(resdir, 'FreeMono.ttf')
 FONTBOLD = os.path.join(resdir, 'FreeMonoBold.ttf')
 
 GMAIL_LOGO = Image.open(os.path.join(resdir, 'gmail.png')).convert("RGBA").resize((40, 40))
+MOON_IMG = Image.open(os.path.join(resdir, 'moon.png')).convert("RGBA")
 
 LAT = dotenv.get('LAT')
 LON = dotenv.get('LON')
@@ -113,8 +114,25 @@ class EDashboard:
 
   def start(self):
     while True:
-      self.draw()
-      self.sleep_until_next_min()
+      now = datetime.now()
+      if now.hour >= 23 and now.minute > 30:
+        self.go_to_sleep()
+      else:
+        self.draw()
+        self.sleep_until_next_min()
+
+  def go_to_sleep(self):
+    BlackImage = Image.new('1', (self.epd.height, self.epd.width), 255)  # 255: clear the frame
+    RedImage = Image.new('1', (self.epd.height, self.epd.width), 255)  # 298*126  ryimage: red or yellow image 
+
+    BlackDraw = ImageDraw.Draw(BlackImage)
+    RedDraw = ImageDraw.Draw(RedImage)
+
+    BlackDraw.bitmap((33, 0), MOON_IMG.resize((self.epd.width, self.epd.width)), fill=None)
+    self.epd.display(self.epd.getbuffer(BlackImage), self.epd.getbuffer(RedImage))
+
+    seconds_until_morning = 60 * 60 * 7 + 60 * 30 # stopped until 7am
+    time.sleep(seconds_until_morning)
 
   def draw(self):
     BlackImage = Image.new('1', (self.epd.height, self.epd.width), 255)  # 255: clear the frame
