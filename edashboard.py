@@ -10,6 +10,7 @@
 
 import sys
 import os
+import subprocess
 
 libdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'lib/')
 resdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'resources/')
@@ -26,6 +27,7 @@ import locale
 import requests, json
 
 from dotenv import Dotenv
+from mock import WEATHER_MOCK
 
 dotenv = Dotenv(".env")
 
@@ -37,6 +39,7 @@ FONT = os.path.join(resdir, 'FreeMono.ttf')
 FONTBOLD = os.path.join(resdir, 'FreeMonoBold.ttf')
 
 GMAIL_LOGO = Image.open(os.path.join(resdir, 'gmail.png')).convert("RGBA").resize((40, 40))
+CALENDAR_LOGO = Image.open(os.path.join(resdir, 'calendar.png')).convert("RGBA").resize((35, 35))
 MOON_IMG = Image.open(os.path.join(resdir, 'moon.png')).convert("RGBA")
 
 LAT = dotenv.get('LAT')
@@ -50,48 +53,11 @@ localeForWeather = LOCALE[:2]
 WEATHER_URL = f"http://api.weatherbit.io/v2.0/current?lat={LAT}&lon={LON}&lang={localeForWeather}&key={WB_API_KEY}"
 WEATHER_ICONS_URL = f"	https://www.weatherbit.io/static/img/icons"
 
-# WEATHER_MOCK = {
-# "rh": 86,
-# "pod": "n",
-# "lon": 37.57,
-# "pres": 996.8,
-# "timezone": "Europe/Moscow",
-# "ob_time": "2021-09-19 15:32",
-# "country_code": "RU",
-# "clouds": 100,
-# "ts": 1632065561,
-# "solar_rad": 0,
-# "state_code": "48",
-# "city_name": "Leninskiye Gory",
-# "wind_spd": 8,
-# "wind_cdir_full": "east",
-# "wind_cdir": "E",
-# "slp": 1018,
-# "vis": 2,
-# "h_angle": 90,
-# "sunset": "15:37",
-# "dni": 0,
-# "dewpt": 3.8,
-# "snow": 0,
-# "uv": 0,
-# "precip": 1,
-# "wind_dir": 100,
-# "sunrise": "03:11",
-# "ghi": 0,
-# "dhi": 0,
-# "aqi": 26,
-# "lat": 55.7,
-# "weather": {
-# "icon": "r01n",
-# "code": 500,
-# "description": "Light rain"
-# },
-# "datetime": "2021-09-19:15",
-# "temp": 6,
-# "station": "UUMO",
-# "elev_angle": -4.23,
-# "app_temp": 1.5
-# }
+
+MOCK_MODE = len(sys.argv) > 1 and sys.argv[1] == '--mock'
+if MOCK_MODE:
+  logging.debug("Running in MOCK mode")
+
 class Fonts:
   def __init__(self, timefont_size, datefont_size, infofont_size, smallfont_size):
     self.timefont = ImageFont.truetype(FONTBOLD, timefont_size)
@@ -102,8 +68,7 @@ class Fonts:
 class EDashboard:
   epd = None
   fonts = None
-  weather = None
-  # weather = WEATHER_MOCK
+  weather = WEATHER_MOCK if MOCK_MODE else None
   last_weather_request_timestamp = None
 
   def __init__(self):
@@ -143,7 +108,8 @@ class EDashboard:
 
     self.attach_clock_data(BlackDraw)
     self.attach_weather_data(BlackDraw)
-    self.attach_emails_data(RedDraw)
+    # self.attach_calendar_data(RedDraw)
+    # self.attach_power_data(RedDraw)
     self.epd.display(self.epd.getbuffer(BlackImage), self.epd.getbuffer(RedImage))
 
   def sleep_until_next_min(self):
@@ -160,15 +126,17 @@ class EDashboard:
     draw.text((4, 43), datestring, font = self.fonts.datefont, fill = 0)
 
   def attach_weather_data(self, draw):
-    shouldRequest = self.last_weather_request_timestamp is None or datetime.now().timestamp() - self.last_weather_request_timestamp > WEATHER_REQUEST_INTERVAL
-    # shouldRequest = False
+    shouldRequest = False if MOCK_MODE else self.last_weather_request_timestamp is None or datetime.now().timestamp() - self.last_weather_request_timestamp > WEATHER_REQUEST_INTERVAL
 
     if shouldRequest:
-      response = requests.get(WEATHER_URL)
-      data = response.json()
-      if 'data' in data:
-        self.last_weather_request_timestamp = datetime.now().timestamp()
-        self.weather = data['data'][0]
+      try:
+        response = requests.get(WEATHER_URL, timeout=2)
+        data = response.json()
+        if 'data' in data:
+          self.last_weather_request_timestamp = datetime.now().timestamp()
+          self.weather = data['data'][0]
+      except:
+        pass
 
     if self.weather is not None:
       windSpeed = self.weather['wind_spd']
@@ -183,21 +151,32 @@ class EDashboard:
       draw.text((4, self.epd.width - 18), f"Wind: {windSpeed}ms", font = self.fonts.smallfont, fill = 0)
 
       icon_path = self.get_weather_icon_path(iconCode)
-      icon = Image.open(icon_path).convert("RGBA").resize((50, 50))
-      draw.bitmap((160, -5), icon, fill=None)
+      if icon_path is not None:
+        icon = Image.open(icon_path).convert("RGBA").resize((50, 50))
+        draw.bitmap((159, -5), icon, fill=None)
 
-  def attach_emails_data(self, draw):
-      draw.bitmap((168, 65), GMAIL_LOGO, fill=None)
+  def attach_calendar_data(self, draw):
+      draw.bitmap((168, 68), CALENDAR_LOGO, fill=None)
+
+  def attach_power_data(self, draw):
+      process = subprocess.Popen(['/opt/vc/bin/vcgencmd', 'get_throttled'], stdout=subprocess.PIPE)
+      output, error = process.communicate()
+      if error:
+        return
+      # b'throttled=0x0\n'
+      output_str = output.decode('utf-8')
 
   def get_weather_icon_path(self, code):
     icon = os.path.join(resdir, f'weather_icons/{code}.png')
 
-    if not os.path.exists(icon):
-      icon_data = requests.get(f"{WEATHER_ICONS_URL}/{code}.png").content
-      with open(icon, 'wb') as f:
-        f.write(icon_data)
-
-    return icon
+    try:
+      if not os.path.exists(icon):
+        icon_data = requests.get(f"{WEATHER_ICONS_URL}/{code}.png", timeout=2).content
+        with open(icon, 'wb') as f:
+          f.write(icon_data)
+      return icon
+    except:
+      return None
 
 if __name__ == '__main__':
   eDashboard = EDashboard()
